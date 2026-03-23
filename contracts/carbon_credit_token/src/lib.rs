@@ -3,6 +3,7 @@
 mod admin;
 mod allowance;
 mod balance;
+mod e2e_test;
 mod error;
 mod events;
 mod metadata;
