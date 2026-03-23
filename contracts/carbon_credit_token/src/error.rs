@@ -16,4 +16,12 @@ pub enum Error {
     ZeroRetirementAmount = 5,
     /// The allowance expiration ledger is in the past while amount > 0.
     InvalidExpirationLedger = 6,
+    /// Caller is not the SuperAdmin.
+    Unauthorized = 7,
+    /// The address is blacklisted and cannot perform this action.
+    Blacklisted = 8,
+    /// SuperAdmin cannot blacklist themselves without first transferring the role.
+    CannotBlacklistSelf = 9,
+    /// The successor address must differ from the current SuperAdmin.
+    InvalidSuccessor = 10,
 }

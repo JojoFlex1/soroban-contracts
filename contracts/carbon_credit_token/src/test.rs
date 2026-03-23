@@ -652,3 +652,81 @@ fn test_full_token_lifecycle() {
     // Verify total CO2 offset: 300 kg
     assert_eq!(token.total_retired(), 300);
 }
+
+// ============ RBAC TESTS ============
+
+#[test]
+#[should_panic]
+fn test_add_verifier_unauthorized() {
+    let env = Env::default();
+    // Do NOT mock_all_auths(), so require_auth() will panic
+    let admin = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    let hacker = Address::generate(&env);
+    // This will panic as it lacks admin authorization
+    token.add_verifier(&hacker);
+}
+
+#[test]
+fn test_add_verifier_authorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    let verifier = Address::generate(&env);
+    token.add_verifier(&verifier);
+
+    assert!(token.is_verifier(&verifier));
+}
+
+#[test]
+fn test_super_admin_cannot_blacklist_self() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    let result = token.try_blacklist(&admin);
+    assert_eq!(result, Err(Ok(Error::CannotBlacklistSelf)));
+}
+
+#[test]
+fn test_blacklist_prevents_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &1000);
+    token.blacklist(&user1);
+
+    let result = token.try_transfer(&user1, &user2, &500);
+    assert_eq!(result, Err(Ok(Error::Blacklisted)));
+}
+
+#[test]
+fn test_transfer_super_admin_and_blacklist_old() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.transfer_super_admin(&new_admin);
+
+    // Old admin can now be blacklisted by the new one
+    token.blacklist(&admin);
+    assert!(token.is_blacklisted(&admin));
+
+    // New admin cannot blacklist themselves
+    let result = token.try_blacklist(&new_admin);
+    assert_eq!(result, Err(Ok(Error::CannotBlacklistSelf)));
+}
