@@ -1,5 +1,6 @@
 use soroban_sdk::{Address, Env};
 
+use crate::error::Error;
 use crate::storage::{DataKey, BALANCE_BUMP_AMOUNT, BALANCE_LIFETIME_THRESHOLD};
 
 pub fn read_balance(e: &Env, addr: Address) -> i128 {
@@ -27,10 +28,11 @@ pub fn receive_balance(e: &Env, addr: Address, amount: i128) {
     write_balance(e, addr, balance + amount);
 }
 
-pub fn spend_balance(e: &Env, addr: Address, amount: i128) {
+pub fn spend_balance(e: &Env, addr: Address, amount: i128) -> Result<(), Error> {
     let balance = read_balance(e, addr.clone());
     if balance < amount {
-        panic!("insufficient balance");
+        return Err(Error::InsufficientBalance);
     }
     write_balance(e, addr, balance - amount);
+    Ok(())
 }
