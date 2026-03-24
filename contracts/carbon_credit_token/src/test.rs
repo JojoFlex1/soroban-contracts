@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{CarbonCreditToken, CarbonCreditTokenClient};
+use crate::{error::Error, CarbonCreditToken, CarbonCreditTokenClient};
 use soroban_sdk::{
     testutils::{Address as _, Events},
     Address, Env, String,
@@ -35,6 +35,32 @@ fn test_initialize() {
     assert_eq!(token.decimals(), 0u32);
     assert_eq!(token.total_supply(), 0i128);
     assert_eq!(token.total_retired(), 0i128);
+}
+
+#[test]
+fn test_initialize_already_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register_contract(None, CarbonCreditToken);
+    let client = CarbonCreditTokenClient::new(&env, &contract_id);
+
+    client.initialize(
+        &admin,
+        &String::from_str(&env, "Carbon Credit Token"),
+        &String::from_str(&env, "CCT"),
+        &0u32,
+    );
+
+    let result = client.try_initialize(
+        &admin,
+        &String::from_str(&env, "Carbon Credit Token"),
+        &String::from_str(&env, "CCT"),
+        &0u32,
+    );
+
+    assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
 // ============ MINT TESTS ============
@@ -85,6 +111,19 @@ fn test_mint_zero_amount() {
 
     assert_eq!(token.balance(&user1), 0);
     assert_eq!(token.total_supply(), 0);
+}
+
+#[test]
+fn test_mint_negative_amount_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    let result = token.try_mint(&user1, &-1);
+    assert_eq!(result, Err(Ok(Error::NegativeAmount)));
 }
 
 // ============ TRANSFER TESTS ============
@@ -139,6 +178,22 @@ fn test_transfer_full_balance() {
 
     assert_eq!(token.balance(&user1), 0);
     assert_eq!(token.balance(&user2), 1000);
+}
+
+#[test]
+fn test_transfer_insufficient_balance_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &100);
+
+    let result = token.try_transfer(&user1, &user2, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientBalance)));
 }
 
 // ============ RETIRE TESTS ============
@@ -217,6 +272,36 @@ fn test_retire_by_multiple_users() {
     assert_eq!(token.total_retired(), 500);
 }
 
+#[test]
+fn test_retire_zero_amount_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &1000);
+
+    let result = token.try_retire(&user1, &0);
+    assert_eq!(result, Err(Ok(Error::ZeroRetirementAmount)));
+}
+
+#[test]
+fn test_retire_insufficient_balance_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &100);
+
+    let result = token.try_retire(&user1, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientBalance)));
+}
+
 // ============ BURN TESTS ============
 
 #[test]
@@ -259,6 +344,21 @@ fn test_burn_vs_retire_difference() {
     assert_eq!(token.total_retired(), 200);
 }
 
+#[test]
+fn test_burn_insufficient_balance_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &100);
+
+    let result = token.try_burn(&user1, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientBalance)));
+}
+
 // ============ ALLOWANCE TESTS ============
 
 #[test]
@@ -284,6 +384,26 @@ fn test_approve_and_transfer_from() {
     assert_eq!(token.balance(&user1), 800);
     assert_eq!(token.balance(&user2), 200);
     assert_eq!(token.allowance(&user1, &spender), 300);
+}
+
+#[test]
+fn test_transfer_from_insufficient_allowance_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &1000);
+
+    let expiration = env.ledger().sequence() + 1000;
+    token.approve(&user1, &spender, &100, &expiration);
+
+    let result = token.try_transfer_from(&spender, &user1, &user2, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientAllowance)));
 }
 
 #[test]
@@ -326,6 +446,27 @@ fn test_approve_updates_allowance() {
     // Update allowance
     token.approve(&user1, &spender, &300, &expiration);
     assert_eq!(token.allowance(&user1, &spender), 300);
+}
+
+#[test]
+fn test_approve_expired_ledger_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    // expiration_ledger is in the past (sequence is 0 by default, but 0 < 0 is false,
+    // so we need sequence > expiration; bump ledger sequence first)
+    let past_ledger: u32 = 0;
+    // amount > 0 with expiration_ledger < current sequence triggers the error.
+    // Default sequence is 0, so we need to advance it.
+    env.ledger().set_sequence_number(10);
+
+    let result = token.try_approve(&user1, &spender, &100, &past_ledger);
+    assert_eq!(result, Err(Ok(Error::InvalidExpirationLedger)));
 }
 
 // ============ EDGE CASES ============
@@ -510,4 +651,82 @@ fn test_full_token_lifecycle() {
 
     // Verify total CO2 offset: 300 kg
     assert_eq!(token.total_retired(), 300);
+}
+
+// ============ RBAC TESTS ============
+
+#[test]
+#[should_panic]
+fn test_add_verifier_unauthorized() {
+    let env = Env::default();
+    // Do NOT mock_all_auths(), so require_auth() will panic
+    let admin = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    let hacker = Address::generate(&env);
+    // This will panic as it lacks admin authorization
+    token.add_verifier(&hacker);
+}
+
+#[test]
+fn test_add_verifier_authorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    let verifier = Address::generate(&env);
+    token.add_verifier(&verifier);
+
+    assert!(token.is_verifier(&verifier));
+}
+
+#[test]
+fn test_super_admin_cannot_blacklist_self() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    let result = token.try_blacklist(&admin);
+    assert_eq!(result, Err(Ok(Error::CannotBlacklistSelf)));
+}
+
+#[test]
+fn test_blacklist_prevents_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &1000);
+    token.blacklist(&user1);
+
+    let result = token.try_transfer(&user1, &user2, &500);
+    assert_eq!(result, Err(Ok(Error::Blacklisted)));
+}
+
+#[test]
+fn test_transfer_super_admin_and_blacklist_old() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.transfer_super_admin(&new_admin);
+
+    // Old admin can now be blacklisted by the new one
+    token.blacklist(&admin);
+    assert!(token.is_blacklisted(&admin));
+
+    // New admin cannot blacklist themselves
+    let result = token.try_blacklist(&new_admin);
+    assert_eq!(result, Err(Ok(Error::CannotBlacklistSelf)));
 }

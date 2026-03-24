@@ -9,7 +9,8 @@ pub struct MintEvent {
 
 impl MintEvent {
     pub fn publish(self, env: &Env) {
-        env.events().publish((symbol_short!("mint"), self.to), self.amount);
+        env.events()
+            .publish((symbol_short!("mint"), self.to), self.amount);
     }
 }
 
