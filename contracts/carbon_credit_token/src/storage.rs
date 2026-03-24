@@ -24,6 +24,9 @@ pub struct AllowanceValue {
 #[contracttype]
 pub enum DataKey {
     Admin,
+    SuperAdmin,
+    Verifier(Address),
+    Blacklisted(Address),
     Balance(Address),
     Allowance(AllowanceDataKey),
     Name,
