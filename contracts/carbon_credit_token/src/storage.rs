@@ -24,6 +24,8 @@ pub struct AllowanceValue {
 #[contracttype]
 pub enum DataKey {
     Admin,
+    /// Address of the external RBAC contract used for role verification.
+    RbacContract,
     Balance(Address),
     Allowance(AllowanceDataKey),
     Name,
@@ -43,6 +45,28 @@ pub fn set_initialized(e: &Env) {
     let key = DataKey::Initialized;
     e.storage().instance().set(&key, &true);
 }
+
+// ── RBAC Contract ──────────────────────────────────────────────────────────────
+
+/// Persists the RBAC contract address used for role-based minting checks.
+pub fn write_rbac_contract(e: &Env, rbac_id: &Address) {
+    e.storage()
+        .instance()
+        .set(&DataKey::RbacContract, rbac_id);
+}
+
+/// Reads the registered RBAC contract address.
+///
+/// Panics if the contract has not been initialised, providing a clear
+/// diagnostic rather than an opaque unwrap failure.
+pub fn read_rbac_contract(e: &Env) -> Address {
+    e.storage()
+        .instance()
+        .get(&DataKey::RbacContract)
+        .expect("rbac contract address not set: was initialize() called?")
+}
+
+// ── Supply Accounting ──────────────────────────────────────────────────────────
 
 pub fn read_total_supply(e: &Env) -> i128 {
     let key = DataKey::TotalSupply;

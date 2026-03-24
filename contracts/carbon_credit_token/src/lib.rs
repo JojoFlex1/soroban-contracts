@@ -5,6 +5,7 @@ mod allowance;
 mod balance;
 mod events;
 mod metadata;
+mod rbac;
 mod storage;
 mod test;
 
@@ -15,9 +16,10 @@ use crate::allowance::{read_allowance, spend_allowance, write_allowance};
 use crate::balance::{read_balance, receive_balance, spend_balance};
 use crate::events::{ApproveEvent, BurnEvent, MintEvent, RetirementEvent, TransferEvent};
 use crate::metadata::{read_decimals, read_name, read_symbol, write_metadata};
+use crate::rbac::require_verifier;
 use crate::storage::{
-    is_initialized, read_total_retired, read_total_supply, set_initialized, write_total_retired,
-    write_total_supply, INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD,
+    is_initialized, read_total_retired, read_total_supply, set_initialized, write_rbac_contract,
+    write_total_retired, write_total_supply, INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD,
 };
 
 fn check_nonnegative_amount(amount: i128) {
@@ -31,27 +33,48 @@ pub struct CarbonCreditToken;
 
 #[contractimpl]
 impl CarbonCreditToken {
-    /// Initializes the contract with admin and metadata.
+    /// Initializes the contract with admin, RBAC contract address, and token metadata.
+    ///
+    /// `rbac_contract` is the address of the deployed RBAC contract that will be
+    /// queried on every `mint` call to verify the `Verifier` role.
+    ///
     /// Can only be called once.
-    pub fn initialize(env: Env, admin: Address, name: String, symbol: String, decimals: u32) {
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        rbac_contract: Address,
+        name: String,
+        symbol: String,
+        decimals: u32,
+    ) {
         if is_initialized(&env) {
             panic!("contract already initialized");
         }
 
         set_initialized(&env);
         write_administrator(&env, &admin);
+        write_rbac_contract(&env, &rbac_contract);
         write_metadata(&env, name, symbol, decimals);
         write_total_supply(&env, 0);
         write_total_retired(&env, 0);
     }
 
-    /// Mints tokens to an address (Admin only).
-    /// Used to credit verified donations.
-    pub fn mint(env: Env, to: Address, amount: i128) {
+    /// Mints tokens to `to` (Verifier role required).
+    ///
+    /// The calling address must:
+    ///   1. Sign the transaction (`require_auth`).
+    ///   2. Hold the `"Verifier"` role in the registered RBAC contract.
+    ///
+    /// This replaces the previous monolithic-admin gate with a delegated,
+    /// RBAC-driven authority model, allowing multiple vetted agricultural
+    /// verifiers to issue credits independently without sharing a single
+    /// admin key.
+    pub fn mint(env: Env, verifier: Address, to: Address, amount: i128) {
         check_nonnegative_amount(amount);
 
-        let admin = read_administrator(&env);
-        admin.require_auth();
+        // Replaces: admin.require_auth()
+        // The verifier must be authenticated AND carry the Verifier role.
+        require_verifier(&env, &verifier);
 
         env.storage()
             .instance()
@@ -105,8 +128,8 @@ impl CarbonCreditToken {
         TransferEvent { from, to, amount }.publish(&env);
     }
 
-    /// Retires (burns) tokens to claim carbon offset.
-    /// Emits a special RetirementEvent with timestamp.
+    /// Retires (burns) tokens to claim a carbon offset.
+    /// Emits a `RetirementEvent` with the ledger timestamp.
     pub fn retire(env: Env, from: Address, amount: i128) {
         from.require_auth();
         check_nonnegative_amount(amount);
@@ -228,6 +251,11 @@ impl CarbonCreditToken {
         read_total_retired(&env)
     }
 
+    /// Returns the address of the RBAC contract used for role verification.
+    pub fn rbac_contract(env: Env) -> Address {
+        crate::storage::read_rbac_contract(&env)
+    }
+
     /// Returns the token name.
     pub fn name(env: Env) -> String {
         read_name(&env)
@@ -241,5 +269,10 @@ impl CarbonCreditToken {
     /// Returns the token decimals.
     pub fn decimals(env: Env) -> u32 {
         read_decimals(&env)
+    }
+
+    /// Returns the admin address (retained for non-minting governance).
+    pub fn admin(env: Env) -> Address {
+        read_administrator(&env)
     }
 }
