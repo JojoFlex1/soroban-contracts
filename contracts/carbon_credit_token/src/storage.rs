@@ -1,11 +1,13 @@
 use soroban_sdk::{contracttype, Address, Bytes, Env};
 
-// TTL Constants
+// ── TTL Constants ──────────────────────────────────────────────────────────────
 pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 17280; // ~1 day
 pub const INSTANCE_BUMP_AMOUNT: u32 = 518400; // ~30 days
+
 pub const BALANCE_LIFETIME_THRESHOLD: u32 = 17280; // ~1 day
 pub const BALANCE_BUMP_AMOUNT: u32 = 518400; // ~30 days
 
+// ── Allowance Types ────────────────────────────────────────────────────────────
 #[derive(Clone)]
 #[contracttype]
 pub struct AllowanceDataKey {
@@ -20,71 +22,148 @@ pub struct AllowanceValue {
     pub expiration_ledger: u32,
 }
 
+// ── Storage Keys ───────────────────────────────────────────────────────────────
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
+    // Admin / roles
+    RbacContract,
     Admin,
     SuperAdmin,
     Verifier(Address),
     Blacklisted(Address),
+
+    // Ledger/accounting
     Balance(Address),
     Allowance(AllowanceDataKey),
+    TotalSupply,
+    TotalRetired,
+
+    // Metadata
     Name,
     Symbol,
     Decimals,
-    TotalSupply,
-    TotalRetired,
+
+    // Init flag
     Initialized,
     VerifierRegistry,
     UsedReportHash(Bytes),
 }
 
+// ── Initialization ─────────────────────────────────────────────────────────────
 pub fn is_initialized(e: &Env) -> bool {
-    let key = DataKey::Initialized;
-    e.storage().instance().has(&key)
+    e.storage().instance().has(&DataKey::Initialized)
 }
 
 pub fn set_initialized(e: &Env) {
-    let key = DataKey::Initialized;
-    e.storage().instance().set(&key, &true);
+    e.storage()
+        .instance()
+        .set(&DataKey::Initialized, &true);
 }
 
+// ── RBAC Contract ──────────────────────────────────────────────────────────────
+/// Persists the external RBAC contract address used for role-based minting checks.
+pub fn write_rbac_contract(e: &Env, rbac_id: &Address) {
+    e.storage()
+        .instance()
+        .set(&DataKey::RbacContract, rbac_id);
+}
+
+/// Reads the registered RBAC contract address.
+///
+/// Panics with a clear diagnostic if the contract has not been initialised.
+pub fn read_rbac_contract(e: &Env) -> Address {
+    e.storage()
+        .instance()
+        .get(&DataKey::RbacContract)
+        .expect("rbac contract address not set: was initialize() called?")
+}
+
+// ── Administrator ──────────────────────────────────────────────────────────────
+pub fn read_administrator(e: &Env) -> Address {
+    e.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .expect("administrator not set")
+}
+
+pub fn write_administrator(e: &Env, admin: &Address) {
+    e.storage().instance().set(&DataKey::Admin, admin);
+}
+
+pub fn read_super_admin(e: &Env) -> Address {
+    e.storage()
+        .instance()
+        .get(&DataKey::SuperAdmin)
+        .expect("super admin not set")
+}
+
+pub fn write_super_admin(e: &Env, admin: &Address) {
+    e.storage().instance().set(&DataKey::SuperAdmin, admin);
+}
+
+// ── Verifier / Blacklist (inline RBAC) ────────────────────────────────────────
+pub fn grant_verifier(e: &Env, verifier: &Address) {
+    e.storage()
+        .instance()
+        .set(&DataKey::Verifier(verifier.clone()), &true);
+}
+
+pub fn revoke_verifier(e: &Env, verifier: &Address) {
+    e.storage()
+        .instance()
+        .remove(&DataKey::Verifier(verifier.clone()));
+}
+
+pub fn is_verifier(e: &Env, addr: &Address) -> bool {
+    e.storage()
+        .instance()
+        .get::<DataKey, bool>(&DataKey::Verifier(addr.clone()))
+        .unwrap_or(false)
+}
+
+pub fn blacklist_address(e: &Env, addr: &Address) {
+    e.storage()
+        .instance()
+        .set(&DataKey::Blacklisted(addr.clone()), &true);
+}
+
+pub fn unblacklist_address(e: &Env, addr: &Address) {
+    e.storage()
+        .instance()
+        .remove(&DataKey::Blacklisted(addr.clone()));
+}
+
+pub fn is_blacklisted(e: &Env, addr: &Address) -> bool {
+    e.storage()
+        .instance()
+        .get::<DataKey, bool>(&DataKey::Blacklisted(addr.clone()))
+        .unwrap_or(false)
+}
+
+// ── Supply Accounting ──────────────────────────────────────────────────────────
 pub fn read_total_supply(e: &Env) -> i128 {
-    let key = DataKey::TotalSupply;
-    e.storage().instance().get(&key).unwrap_or(0)
+    e.storage()
+        .instance()
+        .get(&DataKey::TotalSupply)
+        .unwrap_or(0)
 }
 
 pub fn write_total_supply(e: &Env, amount: i128) {
-    let key = DataKey::TotalSupply;
-    e.storage().instance().set(&key, &amount);
+    e.storage()
+        .instance()
+        .set(&DataKey::TotalSupply, &amount);
 }
 
 pub fn read_total_retired(e: &Env) -> i128 {
-    let key = DataKey::TotalRetired;
-    e.storage().instance().get(&key).unwrap_or(0)
+    e.storage()
+        .instance()
+        .get(&DataKey::TotalRetired)
+        .unwrap_or(0)
 }
 
 pub fn write_total_retired(e: &Env, amount: i128) {
-    let key = DataKey::TotalRetired;
-    e.storage().instance().set(&key, &amount);
-}
-
-pub fn write_verifier_registry(e: &Env, addr: &Address) {
-    let key = DataKey::VerifierRegistry;
-    e.storage().instance().set(&key, addr);
-}
-
-pub fn read_verifier_registry(e: &Env) -> Address {
-    let key = DataKey::VerifierRegistry;
-    e.storage().instance().get(&key).unwrap_or_else(|| panic!("verifier registry not set"))
-}
-
-pub fn is_report_hash_used(e: &Env, report_hash: &Bytes) -> bool {
-    let key = DataKey::UsedReportHash(report_hash.clone());
-    e.storage().instance().has(&key)
-}
-
-pub fn mark_report_hash_used(e: &Env, report_hash: &Bytes) {
-    let key = DataKey::UsedReportHash(report_hash.clone());
-    e.storage().instance().set(&key, &true);
+    e.storage()
+        .instance()
+        .set(&DataKey::TotalRetired, &amount);
 }

@@ -2,7 +2,10 @@
 name = "escrow"
 version = "0.1.0"
 edition = "2021"
-publish = false
+
+[dependencies]
+carbon_credit_token = { path = "../carbon_credit_token" }
+soroban-sdk = { workspace = true }
 
 [lib]
 crate-type = ["cdylib", "rlib"]
