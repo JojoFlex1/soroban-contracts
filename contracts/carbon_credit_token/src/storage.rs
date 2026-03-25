@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, Bytes, Env};
 
 // ── TTL Constants ──────────────────────────────────────────────────────────────
 pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 17280; // ~1 day
@@ -46,6 +46,8 @@ pub enum DataKey {
 
     // Init flag
     Initialized,
+    VerifierRegistry,
+    UsedReportHash(Bytes),
 }
 
 // ── Initialization ─────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 use crate::{CarbonCreditToken, CarbonCreditTokenClient};
 use soroban_sdk::{
-    contract, contractimpl, testutils::Address as _, token, Address, BytesN, Env, String,
+    contract, contractimpl, testutils::{Address as _, Events}, token, Address, BytesN, Env, String,
 };
 
 // ============ MOCK REGISTRY ============
@@ -23,7 +23,8 @@ impl MockRegistry {
 #[contract]
 pub struct MockEscrow;
 
-#[derive(soroban_sdk::contracttype, Clone)]
+#[soroban_sdk::contracttype]
+#[derive(Clone)]
 pub struct Offer {
     pub carbon_token: Address,
     pub usdc_token: Address,
@@ -132,8 +133,8 @@ fn test_carbon_credit_lifecycle() {
     // Verify Registry Event
     let events = env.events().all();
     let contains_report = events.iter().any(|e| {
-        // Just verify there is an event with "report_submitted" concept
-        !e.topics.is_empty()
+        // e is (Address, Vec<Val>, Val) - check if topics (index 1) is not empty
+        !e.1.is_empty()
     });
     assert!(contains_report);
 

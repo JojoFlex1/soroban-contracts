@@ -6,6 +6,8 @@ members = [
 
 [workspace.dependencies]
 soroban-sdk = "20.3.2"
+verifier-registry = { path = "contracts/verifier_registry" }
+carbon-credit-token = { path = "contracts/carbon_credit_token" }
 
 [profile.release]
 opt-level = "z"
