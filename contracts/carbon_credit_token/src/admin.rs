@@ -3,16 +3,65 @@ use soroban_sdk::{Address, Env};
 use crate::storage::DataKey;
 
 pub fn has_administrator(e: &Env) -> bool {
-    let key = DataKey::Admin;
-    e.storage().instance().has(&key)
+    e.storage().instance().has(&DataKey::Admin)
 }
 
 pub fn read_administrator(e: &Env) -> Address {
-    let key = DataKey::Admin;
-    e.storage().instance().get(&key).unwrap()
+    e.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .expect("administrator not set")
 }
 
 pub fn write_administrator(e: &Env, id: &Address) {
-    let key = DataKey::Admin;
-    e.storage().instance().set(&key, id);
+    e.storage().instance().set(&DataKey::Admin, id);
+}
+
+pub fn read_super_admin(e: &Env) -> Address {
+    e.storage()
+        .instance()
+        .get(&DataKey::SuperAdmin)
+        .expect("super admin not set")
+}
+
+pub fn write_super_admin(e: &Env, admin: &Address) {
+    e.storage().instance().set(&DataKey::SuperAdmin, admin);
+}
+
+pub fn grant_verifier(e: &Env, verifier: &Address) {
+    e.storage()
+        .persistent()
+        .set(&DataKey::Verifier(verifier.clone()), &true);
+}
+
+pub fn revoke_verifier(e: &Env, verifier: &Address) {
+    e.storage()
+        .persistent()
+        .remove(&DataKey::Verifier(verifier.clone()));
+}
+
+pub fn is_verifier(e: &Env, addr: &Address) -> bool {
+    e.storage()
+        .persistent()
+        .get::<DataKey, bool>(&DataKey::Verifier(addr.clone()))
+        .unwrap_or(false)
+}
+
+pub fn blacklist_address(e: &Env, addr: &Address) {
+    e.storage()
+        .persistent()
+        .set(&DataKey::Blacklisted(addr.clone()), &true);
+}
+
+pub fn unblacklist_address(e: &Env, addr: &Address) {
+    e.storage()
+        .persistent()
+        .remove(&DataKey::Blacklisted(addr.clone()));
+}
+
+pub fn is_blacklisted(e: &Env, addr: &Address) -> bool {
+    e.storage()
+        .persistent()
+        .get::<DataKey, bool>(&DataKey::Blacklisted(addr.clone()))
+        .unwrap_or(false)
 }

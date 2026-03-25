@@ -1,5 +1,6 @@
 use soroban_sdk::{Address, Env};
 
+use crate::error::Error;
 use crate::storage::{AllowanceDataKey, AllowanceValue, DataKey};
 
 pub fn read_allowance(e: &Env, from: Address, spender: Address) -> i128 {
@@ -21,15 +22,15 @@ pub fn write_allowance(
     spender: Address,
     amount: i128,
     expiration_ledger: u32,
-) {
+) -> Result<(), Error> {
+    if amount > 0 && expiration_ledger < e.ledger().sequence() {
+        return Err(Error::InvalidExpirationLedger);
+    }
+
     let allowance = AllowanceValue {
         amount,
         expiration_ledger,
     };
-
-    if amount > 0 && expiration_ledger < e.ledger().sequence() {
-        panic!("expiration_ledger is less than ledger seq when amount > 0");
-    }
 
     let key = DataKey::Allowance(AllowanceDataKey { from, spender });
     e.storage().temporary().set(&key, &allowance);
@@ -40,12 +41,14 @@ pub fn write_allowance(
             .unwrap();
         e.storage().temporary().extend_ttl(&key, live_for, live_for);
     }
+
+    Ok(())
 }
 
-pub fn spend_allowance(e: &Env, from: Address, spender: Address, amount: i128) {
+pub fn spend_allowance(e: &Env, from: Address, spender: Address, amount: i128) -> Result<(), Error> {
     let allowance = read_allowance(e, from.clone(), spender.clone());
     if allowance < amount {
-        panic!("insufficient allowance");
+        return Err(Error::InsufficientAllowance);
     }
     if amount > 0 {
         write_allowance(
@@ -54,6 +57,7 @@ pub fn spend_allowance(e: &Env, from: Address, spender: Address, amount: i128) {
             spender,
             allowance - amount,
             e.ledger().sequence(),
-        );
+        )?;
     }
+    Ok(())
 }

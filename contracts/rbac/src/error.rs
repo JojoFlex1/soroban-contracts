@@ -1,0 +1,14 @@
+use soroban_sdk::contracterror;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    AlreadyInitialized    = 1,
+    NotInitialized        = 2,
+    Unauthorized          = 3,
+    RoleAlreadyAssigned   = 4,
+    RoleNotAssigned       = 5,
+    AddressHasDifferentRole = 6,
+    CannotRevokeAdmin     = 7,
+}
