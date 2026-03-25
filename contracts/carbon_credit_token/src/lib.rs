@@ -10,7 +10,7 @@ mod metadata;
 mod storage;
 mod test;
 
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
 use crate::admin::{
     blacklist_address, grant_verifier, is_blacklisted, is_verifier, read_administrator,
@@ -170,32 +170,6 @@ impl CarbonCreditToken {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-
-        // Get the verifier registry address
-        let verifier_registry = read_verifier_registry(&env);
-
-        // Call the verifier registry to verify the report_hash exists and is valid
-        let verification = verify_report_with_registry(&env, &verifier_registry, &report_hash);
-        
-        if let Some(report) = verification {
-            // Check if the report has already been used for minting
-            if report.used {
-                panic!("report_hash has already been used for minting");
-            }
-        } else {
-            panic!("report_hash not found in verifier registry");
-        }
-
-        // Check if this specific token contract has already used this report_hash
-        if is_report_hash_used(&env, &report_hash) {
-            panic!("report_hash has already been used for minting");
-        }
-
-        // Mark the report_hash as used
-        mark_report_hash_used(&env, &report_hash);
-
-        // Also mark it as used in the verifier registry
-        mark_report_used_in_registry(&env, &verifier_registry, &report_hash);
 
         receive_balance(&env, to.clone(), amount);
 

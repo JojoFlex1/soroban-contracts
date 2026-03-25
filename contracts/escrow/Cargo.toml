@@ -2,10 +2,16 @@
 name = "escrow"
 version = "0.1.0"
 edition = "2021"
-
-[dependencies]
-carbon-credit-token = { path = "../carbon_credit_token" }
-soroban-sdk = "20.0.0"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+carbon-credit-token = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+carbon-credit-token = { path = "../carbon_credit_token" }

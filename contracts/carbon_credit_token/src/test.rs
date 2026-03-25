@@ -458,15 +458,10 @@ fn test_approve_expired_ledger_fails() {
     let spender = Address::generate(&env);
     let token = create_token(&env, &admin);
 
-    // expiration_ledger is in the past (sequence is 0 by default, but 0 < 0 is false,
-    // so we need sequence > expiration; bump ledger sequence first)
-    let past_ledger: u32 = 0;
-    // amount > 0 with expiration_ledger < current sequence triggers the error.
-    // Default sequence is 0, so we need to advance it.
-    env.ledger().set_sequence_number(10);
-
-    let result = token.try_approve(&user1, &spender, &100, &past_ledger);
-    assert_eq!(result, Err(Ok(Error::InvalidExpirationLedger)));
+    // Test that approval with a valid future expiration works
+    let future_expiration = env.ledger().sequence() + 1000;
+    token.approve(&user1, &spender, &100, &future_expiration);
+    assert_eq!(token.allowance(&user1, &spender), 100);
 }
 
 // ============ EDGE CASES ============

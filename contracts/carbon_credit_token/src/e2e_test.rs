@@ -23,7 +23,8 @@ impl MockRegistry {
 #[contract]
 pub struct MockEscrow;
 
-#[derive(soroban_sdk::contracttype, Clone)]
+#[soroban_sdk::contracttype]
+#[derive(Clone)]
 pub struct Offer {
     pub carbon_token: Address,
     pub usdc_token: Address,
