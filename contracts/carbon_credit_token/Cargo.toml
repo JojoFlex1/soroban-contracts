@@ -1,5 +1,5 @@
 [package]
-name = "carbon-credit-token"
+name = "carbon_credit_token"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -10,6 +10,7 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
+rbac        = { path = "../rbac" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

@@ -54,7 +54,13 @@ pub fn spend_allowance(
         return Err(Error::InsufficientAllowance);
     }
     if amount > 0 {
-        write_allowance(e, from, spender, allowance - amount, e.ledger().sequence())?;
+        write_allowance(
+            e,
+            from,
+            spender,
+            allowance - amount,
+            e.ledger().sequence(),
+        )?;
     }
     Ok(())
 }

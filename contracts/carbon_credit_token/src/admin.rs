@@ -2,12 +2,17 @@ use soroban_sdk::{Address, Env};
 
 use crate::storage::DataKey;
 
+// ── Administrator ─────────────────────────────────────────────────────────────
+
 pub fn has_administrator(e: &Env) -> bool {
     e.storage().instance().has(&DataKey::Admin)
 }
 
 pub fn read_administrator(e: &Env) -> Address {
-    e.storage().instance().get(&DataKey::Admin).unwrap()
+    e.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .expect("administrator not set")
 }
 
 pub fn write_administrator(e: &Env, id: &Address) {
@@ -21,51 +26,54 @@ pub fn has_super_admin(e: &Env) -> bool {
 }
 
 pub fn read_super_admin(e: &Env) -> Address {
-    e.storage().instance().get(&DataKey::SuperAdmin).unwrap()
+    e.storage()
+        .instance()
+        .get(&DataKey::SuperAdmin)
+        .expect("super admin not set")
 }
 
-pub fn write_super_admin(e: &Env, id: &Address) {
-    e.storage().instance().set(&DataKey::SuperAdmin, id);
+pub fn write_super_admin(e: &Env, admin: &Address) {
+    e.storage().instance().set(&DataKey::SuperAdmin, admin);
 }
 
-// ── Verifier role ─────────────────────────────────────────────────────────────
+// ── Verifier Role ─────────────────────────────────────────────────────────────
 
 pub fn is_verifier(e: &Env, addr: &Address) -> bool {
     e.storage()
-        .instance()
+        .persistent()
         .get::<DataKey, bool>(&DataKey::Verifier(addr.clone()))
         .unwrap_or(false)
 }
 
-pub fn grant_verifier(e: &Env, addr: &Address) {
+pub fn grant_verifier(e: &Env, verifier: &Address) {
     e.storage()
-        .instance()
-        .set(&DataKey::Verifier(addr.clone()), &true);
+        .persistent()
+        .set(&DataKey::Verifier(verifier.clone()), &true);
 }
 
-pub fn revoke_verifier(e: &Env, addr: &Address) {
+pub fn revoke_verifier(e: &Env, verifier: &Address) {
     e.storage()
-        .instance()
-        .remove(&DataKey::Verifier(addr.clone()));
+        .persistent()
+        .remove(&DataKey::Verifier(verifier.clone()));
 }
 
 // ── Blacklist ─────────────────────────────────────────────────────────────────
 
 pub fn is_blacklisted(e: &Env, addr: &Address) -> bool {
     e.storage()
-        .instance()
+        .persistent()
         .get::<DataKey, bool>(&DataKey::Blacklisted(addr.clone()))
         .unwrap_or(false)
 }
 
 pub fn blacklist_address(e: &Env, addr: &Address) {
     e.storage()
-        .instance()
+        .persistent()
         .set(&DataKey::Blacklisted(addr.clone()), &true);
 }
 
 pub fn unblacklist_address(e: &Env, addr: &Address) {
     e.storage()
-        .instance()
+        .persistent()
         .remove(&DataKey::Blacklisted(addr.clone()));
 }

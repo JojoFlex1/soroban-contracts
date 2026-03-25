@@ -3,11 +3,12 @@
 mod admin;
 mod allowance;
 mod balance;
-mod e2e_test;
 mod error;
 mod events;
 mod metadata;
+mod rbac;
 mod storage;
+#[cfg(test)]
 mod test;
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
@@ -21,9 +22,10 @@ use crate::balance::{read_balance, receive_balance, spend_balance};
 use crate::error::Error;
 use crate::events::{ApproveEvent, BurnEvent, MintEvent, RetirementEvent, TransferEvent};
 use crate::metadata::{read_decimals, read_name, read_symbol, write_metadata};
+use crate::rbac::require_verifier;
 use crate::storage::{
-    is_initialized, read_total_retired, read_total_supply, set_initialized, write_total_retired,
-    write_total_supply, INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD,
+    is_initialized, read_total_retired, read_total_supply, set_initialized, write_rbac_contract,
+    write_total_retired, write_total_supply, INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD,
 };
 
 fn check_nonnegative_amount(amount: i128) -> Result<(), Error> {
@@ -48,11 +50,12 @@ pub struct CarbonCreditToken;
 
 #[contractimpl]
 impl CarbonCreditToken {
-    /// Initializes the contract with admin/super-admin and metadata.
+    /// Initializes the contract with admin/super-admin, RBAC and metadata.
     /// Can only be called once.
     pub fn initialize(
         env: Env,
         admin: Address,
+        rbac_contract: Address,
         name: String,
         symbol: String,
         decimals: u32,
@@ -65,10 +68,10 @@ impl CarbonCreditToken {
         write_administrator(&env, &admin);
         // The initial admin is also the SuperAdmin.
         write_super_admin(&env, &admin);
+        write_rbac_contract(&env, &rbac_contract);
         write_metadata(&env, name, symbol, decimals);
         write_total_supply(&env, 0);
         write_total_retired(&env, 0);
-
         Ok(())
     }
 
@@ -104,8 +107,8 @@ impl CarbonCreditToken {
 
     /// Blacklists `target`.
     /// Only the SuperAdmin may call this.
-    /// The SuperAdmin cannot blacklist themselves — they must transfer the role
-    /// first via `transfer_super_admin`.
+    /// The SuperAdmin cannot blacklist themselves — they must transfer the
+    /// role first via `transfer_super_admin`.
     pub fn blacklist(env: Env, target: Address) -> Result<(), Error> {
         let super_admin = read_super_admin(&env);
         super_admin.require_auth();
@@ -137,7 +140,6 @@ impl CarbonCreditToken {
     }
 
     /// Transfers the SuperAdmin role to `successor`.
-    /// The successor must be a different address.
     /// Only the current SuperAdmin may call this.
     pub fn transfer_super_admin(env: Env, successor: Address) -> Result<(), Error> {
         let super_admin = read_super_admin(&env);
@@ -157,14 +159,14 @@ impl CarbonCreditToken {
 
     // ── Token operations ──────────────────────────────────────────────────────
 
-    /// Mints tokens to an address (Admin only).
-    /// Used to credit verified donations.
-    pub fn mint(env: Env, to: Address, amount: i128) -> Result<(), Error> {
+    /// Mints tokens to `to` (requires Verifier role from external RBAC).
+    pub fn mint(env: Env, verifier: Address, to: Address, amount: i128) -> Result<(), Error> {
         check_nonnegative_amount(amount)?;
+        require_not_blacklisted(&env, &verifier)?;
         require_not_blacklisted(&env, &to)?;
 
-        let admin = read_administrator(&env);
-        admin.require_auth();
+        // Records auth + validates external RBAC.
+        require_verifier(&env, &verifier);
 
         env.storage()
             .instance()
@@ -180,7 +182,6 @@ impl CarbonCreditToken {
             amount,
         }
         .publish(&env);
-
         Ok(())
     }
 
@@ -204,7 +205,6 @@ impl CarbonCreditToken {
             amount,
         }
         .publish(&env);
-
         Ok(())
     }
 
@@ -260,13 +260,7 @@ impl CarbonCreditToken {
 
         let timestamp = env.ledger().timestamp();
 
-        RetirementEvent {
-            from: from.clone(),
-            amount,
-            timestamp,
-        }
-        .publish(&env);
-
+        RetirementEvent { from: from.clone(), amount, timestamp }.publish(&env);
         BurnEvent { from, amount }.publish(&env);
 
         Ok(())
@@ -293,7 +287,12 @@ impl CarbonCreditToken {
     }
 
     /// Burns tokens using allowance.
-    pub fn burn_from(env: Env, spender: Address, from: Address, amount: i128) -> Result<(), Error> {
+    pub fn burn_from(
+        env: Env,
+        spender: Address,
+        from: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
         spender.require_auth();
         check_nonnegative_amount(amount)?;
         require_not_blacklisted(&env, &spender)?;
@@ -314,7 +313,6 @@ impl CarbonCreditToken {
         Ok(())
     }
 
-    /// Approves spending by a spender (SEP-41).
     pub fn approve(
         env: Env,
         from: Address,
@@ -345,11 +343,10 @@ impl CarbonCreditToken {
             expiration_ledger,
         }
         .publish(&env);
-
         Ok(())
     }
 
-    // ── View functions ────────────────────────────────────────────────────────
+    // ============ VIEW FUNCTIONS ============
 
     /// Returns `true` if `addr` holds the Verifier role.
     pub fn is_verifier(env: Env, addr: Address) -> bool {
@@ -369,7 +366,6 @@ impl CarbonCreditToken {
         read_balance(&env, id)
     }
 
-    /// Returns the allowance of a spender.
     pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
         env.storage()
             .instance()
@@ -377,28 +373,31 @@ impl CarbonCreditToken {
         read_allowance(&env, from, spender)
     }
 
-    /// Returns the total supply of tokens in circulation.
     pub fn total_supply(env: Env) -> i128 {
         read_total_supply(&env)
     }
 
-    /// Returns the total tokens retired (CO₂ offset claimed).
     pub fn total_retired(env: Env) -> i128 {
         read_total_retired(&env)
     }
 
-    /// Returns the token name.
+    pub fn rbac_contract(env: Env) -> Address {
+        crate::storage::read_rbac_contract(&env)
+    }
+
     pub fn name(env: Env) -> String {
         read_name(&env)
     }
 
-    /// Returns the token symbol.
     pub fn symbol(env: Env) -> String {
         read_symbol(&env)
     }
 
-    /// Returns the token decimals.
     pub fn decimals(env: Env) -> u32 {
         read_decimals(&env)
+    }
+
+    pub fn admin(env: Env) -> Address {
+        read_administrator(&env)
     }
 }

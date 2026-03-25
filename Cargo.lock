@@ -120,9 +120,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "carbon-credit-token"
+name = "carbon_credit_token"
 version = "0.1.0"
 dependencies = [
+ "rbac",
  "soroban-sdk",
 ]
 
@@ -409,7 +410,7 @@ checksum = "2bfcf67fea2815c2fc3b90873fae90957be12ff417335dfadc7f52927feb03b2"
 name = "escrow"
 version = "0.1.0"
 dependencies = [
- "carbon-credit-token",
+ "carbon_credit_token",
  "soroban-sdk",
 ]
 
