@@ -2,9 +2,10 @@ use soroban_sdk::{contracttype, Address, Env};
 
 // ── TTL Constants ──────────────────────────────────────────────────────────────
 pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 17280; // ~1 day
-pub const INSTANCE_BUMP_AMOUNT: u32 = 518400;        // ~30 days
-pub const BALANCE_LIFETIME_THRESHOLD: u32 = 17280;  // ~1 day
-pub const BALANCE_BUMP_AMOUNT: u32 = 518400;         // ~30 days
+pub const INSTANCE_BUMP_AMOUNT: u32 = 518400; // ~30 days
+
+pub const BALANCE_LIFETIME_THRESHOLD: u32 = 17280; // ~1 day
+pub const BALANCE_BUMP_AMOUNT: u32 = 518400; // ~30 days
 
 // ── Allowance Types ────────────────────────────────────────────────────────────
 #[derive(Clone)]
@@ -25,22 +26,25 @@ pub struct AllowanceValue {
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
-    Admin,
-    /// Address of the external RBAC contract used for role verification.
+    // Admin / roles
     RbacContract,
-    /// SuperAdmin address stored inline (used by token contract admin checks).
+    Admin,
     SuperAdmin,
-    /// Per-address verifier flag (used when RBAC is managed internally).
     Verifier(Address),
-    /// Per-address blacklist flag.
     Blacklisted(Address),
+
+    // Ledger/accounting
     Balance(Address),
     Allowance(AllowanceDataKey),
+    TotalSupply,
+    TotalRetired,
+
+    // Metadata
     Name,
     Symbol,
     Decimals,
-    TotalSupply,
-    TotalRetired,
+
+    // Init flag
     Initialized,
 }
 
@@ -50,7 +54,9 @@ pub fn is_initialized(e: &Env) -> bool {
 }
 
 pub fn set_initialized(e: &Env) {
-    e.storage().instance().set(&DataKey::Initialized, &true);
+    e.storage()
+        .instance()
+        .set(&DataKey::Initialized, &true);
 }
 
 // ── RBAC Contract ──────────────────────────────────────────────────────────────
@@ -97,38 +103,38 @@ pub fn write_super_admin(e: &Env, admin: &Address) {
 // ── Verifier / Blacklist (inline RBAC) ────────────────────────────────────────
 pub fn grant_verifier(e: &Env, verifier: &Address) {
     e.storage()
-        .persistent()
+        .instance()
         .set(&DataKey::Verifier(verifier.clone()), &true);
 }
 
 pub fn revoke_verifier(e: &Env, verifier: &Address) {
     e.storage()
-        .persistent()
+        .instance()
         .remove(&DataKey::Verifier(verifier.clone()));
 }
 
 pub fn is_verifier(e: &Env, addr: &Address) -> bool {
     e.storage()
-        .persistent()
+        .instance()
         .get::<DataKey, bool>(&DataKey::Verifier(addr.clone()))
         .unwrap_or(false)
 }
 
 pub fn blacklist_address(e: &Env, addr: &Address) {
     e.storage()
-        .persistent()
+        .instance()
         .set(&DataKey::Blacklisted(addr.clone()), &true);
 }
 
 pub fn unblacklist_address(e: &Env, addr: &Address) {
     e.storage()
-        .persistent()
+        .instance()
         .remove(&DataKey::Blacklisted(addr.clone()));
 }
 
 pub fn is_blacklisted(e: &Env, addr: &Address) -> bool {
     e.storage()
-        .persistent()
+        .instance()
         .get::<DataKey, bool>(&DataKey::Blacklisted(addr.clone()))
         .unwrap_or(false)
 }
@@ -142,7 +148,9 @@ pub fn read_total_supply(e: &Env) -> i128 {
 }
 
 pub fn write_total_supply(e: &Env, amount: i128) {
-    e.storage().instance().set(&DataKey::TotalSupply, &amount);
+    e.storage()
+        .instance()
+        .set(&DataKey::TotalSupply, &amount);
 }
 
 pub fn read_total_retired(e: &Env) -> i128 {
@@ -153,5 +161,7 @@ pub fn read_total_retired(e: &Env) -> i128 {
 }
 
 pub fn write_total_retired(e: &Env, amount: i128) {
-    e.storage().instance().set(&DataKey::TotalRetired, &amount);
+    e.storage()
+        .instance()
+        .set(&DataKey::TotalRetired, &amount);
 }

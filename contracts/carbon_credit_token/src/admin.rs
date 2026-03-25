@@ -2,6 +2,8 @@ use soroban_sdk::{Address, Env};
 
 use crate::storage::DataKey;
 
+// ── Administrator ─────────────────────────────────────────────────────────────
+
 pub fn has_administrator(e: &Env) -> bool {
     e.storage().instance().has(&DataKey::Admin)
 }
@@ -17,6 +19,12 @@ pub fn write_administrator(e: &Env, id: &Address) {
     e.storage().instance().set(&DataKey::Admin, id);
 }
 
+// ── SuperAdmin ────────────────────────────────────────────────────────────────
+
+pub fn has_super_admin(e: &Env) -> bool {
+    e.storage().instance().has(&DataKey::SuperAdmin)
+}
+
 pub fn read_super_admin(e: &Env) -> Address {
     e.storage()
         .instance()
@@ -26,6 +34,15 @@ pub fn read_super_admin(e: &Env) -> Address {
 
 pub fn write_super_admin(e: &Env, admin: &Address) {
     e.storage().instance().set(&DataKey::SuperAdmin, admin);
+}
+
+// ── Verifier Role ─────────────────────────────────────────────────────────────
+
+pub fn is_verifier(e: &Env, addr: &Address) -> bool {
+    e.storage()
+        .persistent()
+        .get::<DataKey, bool>(&DataKey::Verifier(addr.clone()))
+        .unwrap_or(false)
 }
 
 pub fn grant_verifier(e: &Env, verifier: &Address) {
@@ -40,10 +57,12 @@ pub fn revoke_verifier(e: &Env, verifier: &Address) {
         .remove(&DataKey::Verifier(verifier.clone()));
 }
 
-pub fn is_verifier(e: &Env, addr: &Address) -> bool {
+// ── Blacklist ─────────────────────────────────────────────────────────────────
+
+pub fn is_blacklisted(e: &Env, addr: &Address) -> bool {
     e.storage()
         .persistent()
-        .get::<DataKey, bool>(&DataKey::Verifier(addr.clone()))
+        .get::<DataKey, bool>(&DataKey::Blacklisted(addr.clone()))
         .unwrap_or(false)
 }
 
@@ -57,11 +76,4 @@ pub fn unblacklist_address(e: &Env, addr: &Address) {
     e.storage()
         .persistent()
         .remove(&DataKey::Blacklisted(addr.clone()));
-}
-
-pub fn is_blacklisted(e: &Env, addr: &Address) -> bool {
-    e.storage()
-        .persistent()
-        .get::<DataKey, bool>(&DataKey::Blacklisted(addr.clone()))
-        .unwrap_or(false)
 }

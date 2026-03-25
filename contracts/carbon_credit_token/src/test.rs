@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::{CarbonCreditToken, CarbonCreditTokenClient};
 use soroban_sdk::{
     contract, contractimpl, contractclient,
     testutils::{Address as _, Ledger},
@@ -117,6 +118,32 @@ fn test_initialize() {
 
 #[test]
 fn test_initialize_already_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register_contract(None, CarbonCreditToken);
+    let client = CarbonCreditTokenClient::new(&env, &contract_id);
+
+    client.initialize(
+        &admin,
+        &String::from_str(&env, "Carbon Credit Token"),
+        &String::from_str(&env, "CCT"),
+        &0u32,
+    );
+
+    let result = client.try_initialize(
+        &admin,
+        &String::from_str(&env, "Carbon Credit Token"),
+        &String::from_str(&env, "CCT"),
+        &0u32,
+    );
+
+    assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}
+
+#[test]
+fn test_initialize_already_initialized() {
     let (env, token, _, _, _) = setup();
     let rbac_id = env.register_contract(None, MockRbacContract);
     let admin2  = Address::generate(&env);
@@ -215,6 +242,19 @@ fn test_mint_records_verifier_auth() {
     );
 }
 
+#[test]
+fn test_mint_negative_amount_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    let result = token.try_mint(&user1, &-1);
+    assert_eq!(result, Err(Ok(Error::NegativeAmount)));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ============ TRANSFER TESTS ============
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,6 +288,22 @@ fn test_transfer_full_balance() {
     token.transfer(&user1, &user2, &1000);
     assert_eq!(token.balance(&user1), 0);
     assert_eq!(token.balance(&user2), 1000);
+}
+
+#[test]
+fn test_transfer_insufficient_balance_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &100);
+
+    let result = token.try_transfer(&user1, &user2, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientBalance)));
 }
 
 #[test]
@@ -317,6 +373,8 @@ fn test_retire_by_multiple_users() {
     assert_eq!(token.total_retired(),  500);
 }
 
+// ============ BURN TESTS ============
+
 #[test]
 fn test_retire_zero_amount_fails() {
     let (_, token, _, _, user) = setup_with_balance(1000);
@@ -331,6 +389,21 @@ fn test_retire_insufficient_balance_fails() {
     assert_eq!(result, Err(Ok(Error::InsufficientBalance)));
 }
 
+#[test]
+fn test_burn_insufficient_balance_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &100);
+
+    let result = token.try_burn(&user1, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientBalance)));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ============ BURN TESTS ============
 // ─────────────────────────────────────────────────────────────────────────────
@@ -340,6 +413,26 @@ fn test_burn_insufficient_balance_fails() {
     let (_, token, _, _, user) = setup_with_balance(100);
     let result = token.try_burn(&user, &500);
     assert_eq!(result, Err(Ok(Error::InsufficientBalance)));
+}
+
+#[test]
+fn test_transfer_from_insufficient_allowance_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    token.mint(&user1, &1000);
+
+    let expiration = env.ledger().sequence() + 1000;
+    token.approve(&user1, &spender, &100, &expiration);
+
+    let result = token.try_transfer_from(&spender, &user1, &user2, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientAllowance)));
 }
 
 #[test]
@@ -379,6 +472,27 @@ fn test_approve_expired_ledger_fails() {
     env.ledger().with_mut(|l| l.sequence_number = 10);
 
     let result = token.try_approve(&user, &spender, &100, &0u32);
+    assert_eq!(result, Err(Ok(Error::InvalidExpirationLedger)));
+}
+
+#[test]
+fn test_approve_expired_ledger_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let token = create_token(&env, &admin);
+
+    // expiration_ledger is in the past (sequence is 0 by default, but 0 < 0 is false,
+    // so we need sequence > expiration; bump ledger sequence first)
+    let past_ledger: u32 = 0;
+    // amount > 0 with expiration_ledger < current sequence triggers the error.
+    // Default sequence is 0, so we need to advance it.
+    env.ledger().set_sequence_number(10);
+
+    let result = token.try_approve(&user1, &spender, &100, &past_ledger);
     assert_eq!(result, Err(Ok(Error::InvalidExpirationLedger)));
 }
 
