@@ -97,20 +97,34 @@ impl VerifierRegistry {
 
     /// Submits a report hash for a farmer.
     /// Only registered and active verifiers can call this.
-    /// The caller (verifier) is authenticated via require_auth().
     pub fn submit_report_hash(
         env: Env,
+        verifier: Address,
         farmer: Address,
         metric_hash: String,
     ) -> Result<(), Error> {
-        // The caller is authenticated via require_auth() - get the address from the caller
-        // In Soroban, the caller is obtained through the auth framework
-        // We'll use the fact that require_auth() will panic if the caller is not authorized
-        // For the actual caller, we need to store it - let's accept it as a parameter for now
-        // In production, this would be obtained from the transaction's source account
-        
-        // For now, let's accept the verifier as a parameter to make testing easier
-        // In production, you'd get this from env.invoker() or similar
+        verifier.require_auth();
+
+        if !is_verifier_registered(&env, &verifier) {
+            return Err(Error::VerifierNotRegistered);
+        }
+
+        if let Some(profile) = read_verifier_profile(&env, &verifier) {
+            if !profile.is_active {
+                return Err(Error::Unauthorized);
+            }
+        } else {
+            return Err(Error::VerifierNotRegistered);
+        }
+
+        let report: ReportData = (verifier.clone(), metric_hash.clone(), env.ledger().sequence());
+        write_report(&env, &farmer, &report);
+
+        env.events().publish(
+            (soroban_sdk::symbol_short!("rpt_submit"),),
+            (verifier, farmer, metric_hash),
+        );
+
         Ok(())
     }
 
