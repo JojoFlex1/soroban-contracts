@@ -20,13 +20,19 @@ use crate::admin::{
 use crate::allowance::{read_allowance, spend_allowance, write_allowance};
 use crate::balance::{read_balance, receive_balance, spend_balance};
 use crate::error::Error;
-use crate::events::{ApproveEvent, BurnEvent, MintEvent, RetirementEvent, TransferEvent};
+use crate::events::{
+    ApproveEvent, BurnEvent, CertificateGeneratedEvent, MintEvent, RetirementEvent, TransferEvent,
+};
+
 use crate::metadata::{read_decimals, read_name, read_symbol, write_metadata};
 use crate::rbac::require_verifier;
 use crate::storage::{
-    is_initialized, read_total_retired, read_total_supply, set_initialized, write_rbac_contract,
+    increment_certificate_count, is_initialized, read_certificate_count, read_certificates,
+    read_total_retired, read_total_supply, set_initialized, write_certificate, write_rbac_contract,
     write_total_retired, write_total_supply, INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD,
+    OffsetCertificate,
 };
+
 
 fn check_nonnegative_amount(amount: i128) -> Result<(), Error> {
     if amount < 0 {
@@ -172,32 +178,6 @@ impl CarbonCreditToken {
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 
-        // Get the verifier registry address
-        let verifier_registry = read_verifier_registry(&env);
-
-        // Call the verifier registry to verify the report_hash exists and is valid
-        let verification = verify_report_with_registry(&env, &verifier_registry, &report_hash);
-        
-        if let Some(report) = verification {
-            // Check if the report has already been used for minting
-            if report.used {
-                panic!("report_hash has already been used for minting");
-            }
-        } else {
-            panic!("report_hash not found in verifier registry");
-        }
-
-        // Check if this specific token contract has already used this report_hash
-        if is_report_hash_used(&env, &report_hash) {
-            panic!("report_hash has already been used for minting");
-        }
-
-        // Mark the report_hash as used
-        mark_report_hash_used(&env, &report_hash);
-
-        // Also mark it as used in the verifier registry
-        mark_report_used_in_registry(&env, &verifier_registry, &report_hash);
-
         receive_balance(&env, to.clone(), amount);
 
         let new_supply = read_total_supply(&env) + amount;
@@ -210,6 +190,7 @@ impl CarbonCreditToken {
         .publish(&env);
         Ok(())
     }
+
 
     /// Transfers tokens between addresses.
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<(), Error> {
@@ -286,11 +267,34 @@ impl CarbonCreditToken {
 
         let timestamp = env.ledger().timestamp();
 
-        RetirementEvent { from: from.clone(), amount, timestamp }.publish(&env);
+        let cert_id = increment_certificate_count(&env);
+        let certificate = OffsetCertificate {
+            id: cert_id,
+            amount,
+            timestamp,
+        };
+        write_certificate(&env, from.clone(), certificate);
+
+        RetirementEvent {
+            from: from.clone(),
+            amount,
+            timestamp,
+        }
+        .publish(&env);
+
+        CertificateGeneratedEvent {
+            certificate_id: cert_id,
+            corporate: from.clone(),
+            amount,
+            timestamp,
+        }
+        .publish(&env);
+
         BurnEvent { from, amount }.publish(&env);
 
         Ok(())
     }
+
 
     /// Burns tokens (SEP-41 standard).
     pub fn burn(env: Env, from: Address, amount: i128) -> Result<(), Error> {
@@ -425,5 +429,15 @@ impl CarbonCreditToken {
 
     pub fn admin(env: Env) -> Address {
         read_administrator(&env)
+    }
+
+    /// Returns the list of certificates for a corporate address.
+    pub fn get_certificates(env: Env, corporate: Address) -> soroban_sdk::Vec<OffsetCertificate> {
+        read_certificates(&env, corporate)
+    }
+
+    /// Returns the total number of certificates issued globally.
+    pub fn get_certificate_count(env: Env) -> u64 {
+        read_certificate_count(&env)
     }
 }

@@ -11,10 +11,6 @@ soroban-sdk = { workspace = true }
 crate-type = ["cdylib", "rlib"]
 doctest = false
 
-[dependencies]
-soroban-sdk = { workspace = true }
-carbon-credit-token = { workspace = true }
-
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-carbon-credit-token = { path = "../carbon_credit_token" }
+carbon_credit_token = { path = "../carbon_credit_token" }

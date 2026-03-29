@@ -270,4 +270,8 @@ fn test_transfer_admin() {
     let (env, client, old_admin) = setup();
     let new_admin = Address::generate(&env);
 
-    cl
+    client.transfer_admin(&old_admin, &new_admin);
+    assert_eq!(client.get_super_admin(), new_admin);
+    assert!(client.is_super_admin(&new_admin));
+    assert!(!client.is_super_admin(&old_admin));
+}

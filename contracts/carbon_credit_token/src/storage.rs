@@ -1,4 +1,13 @@
-use soroban_sdk::{contracttype, Address, Bytes, Env};
+use soroban_sdk::{contracttype, Address, Bytes, Env, Vec};
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct OffsetCertificate {
+    pub id: u64,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
 
 // ── TTL Constants ──────────────────────────────────────────────────────────────
 pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 17280; // ~1 day
@@ -48,7 +57,12 @@ pub enum DataKey {
     Initialized,
     VerifierRegistry,
     UsedReportHash(Bytes),
+
+    // Offset Certificates
+    CertificateCount,
+    Certificates(Address),
 }
+
 
 // ── Initialization ─────────────────────────────────────────────────────────────
 pub fn is_initialized(e: &Env) -> bool {
@@ -167,3 +181,41 @@ pub fn write_total_retired(e: &Env, amount: i128) {
         .instance()
         .set(&DataKey::TotalRetired, &amount);
 }
+
+// ── Offset Certificates ────────────────────────────────────────────────────────
+pub fn read_certificate_count(e: &Env) -> u64 {
+    e.storage()
+        .instance()
+        .get(&DataKey::CertificateCount)
+        .unwrap_or(0)
+}
+
+pub fn increment_certificate_count(e: &Env) -> u64 {
+    let count = read_certificate_count(e) + 1;
+    e.storage()
+        .instance()
+        .set(&DataKey::CertificateCount, &count);
+    count
+}
+
+pub fn read_certificates(e: &Env, corporate: Address) -> Vec<OffsetCertificate> {
+    e.storage()
+        .persistent()
+        .get(&DataKey::Certificates(corporate))
+        .unwrap_or_else(|| Vec::new(e))
+}
+
+pub fn write_certificate(e: &Env, corporate: Address, cert: OffsetCertificate) {
+    let mut certs = read_certificates(e, corporate.clone());
+    certs.push_back(cert);
+    e.storage()
+        .persistent()
+        .set(&DataKey::Certificates(corporate.clone()), &certs);
+
+
+    // Bump TTL for persistent storage
+    e.storage()
+        .persistent()
+        .extend_ttl(&DataKey::Certificates(corporate.clone()), 17280, 518400);
+}
+
