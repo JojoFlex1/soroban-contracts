@@ -7,8 +7,8 @@ pub use error::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
 use storage::{
-    is_admin, is_super_admin, is_trader, is_verifier, read_admin, read_role, read_super_admin,
-    revoke_admin, revoke_trader, revoke_verifier, write_admin, write_role, write_super_admin,
+    is_admin, is_super_admin, is_trader, is_verifier, read_role, read_super_admin,
+    write_admin, write_role, write_super_admin, RoleType,
     INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD,
 };
 
@@ -17,7 +17,6 @@ pub struct RbacContract;
 
 #[contractimpl]
 impl RbacContract {
-    /// Initializes the contract with a SuperAdmin.
     pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
         if storage::is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
@@ -25,21 +24,25 @@ impl RbacContract {
         storage::set_initialized(&env);
         write_super_admin(&env, &admin);
         write_admin(&env, &admin);
-        write_role(&env, &admin, storage::RoleType::SuperAdmin);
-
+        write_role(&env, &admin, RoleType::SuperAdmin);
         Ok(())
     }
 
-    // --- Role Management ---
+    // --- Role Grant ---
 
     pub fn grant_admin(env: Env, admin: Address, account: Address) -> Result<(), Error> {
         admin.require_auth();
         if !is_admin(&env, &admin) {
             return Err(Error::Unauthorized);
         }
+        if let Some(existing) = read_role(&env, &account) {
+            if existing != RoleType::Admin {
+                return Err(Error::AddressHasDifferentRole);
+            }
+            return Err(Error::RoleAlreadyAssigned);
+        }
         write_admin(&env, &account);
-        write_role(&env, &account, storage::RoleType::Admin);
-
+        write_role(&env, &account, RoleType::Admin);
         Ok(())
     }
 
@@ -48,8 +51,13 @@ impl RbacContract {
         if !is_admin(&env, &admin) {
             return Err(Error::Unauthorized);
         }
-        write_role(&env, &account, storage::RoleType::Verifier);
-
+        if let Some(existing) = read_role(&env, &account) {
+            if existing != RoleType::Verifier {
+                return Err(Error::AddressHasDifferentRole);
+            }
+            return Err(Error::RoleAlreadyAssigned);
+        }
+        write_role(&env, &account, RoleType::Verifier);
         Ok(())
     }
 
@@ -58,8 +66,13 @@ impl RbacContract {
         if !is_admin(&env, &admin) {
             return Err(Error::Unauthorized);
         }
-        write_role(&env, &account, storage::RoleType::Trader);
-
+        if let Some(existing) = read_role(&env, &account) {
+            if existing != RoleType::Trader {
+                return Err(Error::AddressHasDifferentRole);
+            }
+            return Err(Error::RoleAlreadyAssigned);
+        }
+        write_role(&env, &account, RoleType::Trader);
         Ok(())
     }
 
@@ -68,53 +81,90 @@ impl RbacContract {
         if !is_admin(&env, &admin) {
             return Err(Error::Unauthorized);
         }
-
-        if storage::is_super_admin(&env, &account) {
+        if is_super_admin(&env, &account) {
             return Err(Error::CannotRemoveSuperAdmin);
         }
-
         match read_role(&env, &account) {
-            Some(storage::RoleType::Admin) => {
+            Some(RoleType::Admin) => {
                 storage::revoke_admin(&env, &account);
                 storage::remove_role(&env, &account);
                 Ok(())
             }
-            Some(storage::RoleType::Verifier) => {
+            Some(RoleType::Verifier) => {
                 storage::revoke_verifier(&env, &account);
                 Ok(())
             }
-            Some(storage::RoleType::Trader) => {
+            Some(RoleType::Trader) => {
                 storage::revoke_trader(&env, &account);
                 Ok(())
-            }   
-            Some(storage::RoleType::Verifier) => {
-                revoke_verifier(&env, &account);
-                Ok(())
             }
-            Some(storage::RoleType::Trader) => {
-                revoke_trader(&env, &account);
-                Ok(())
-            }
-            Some(storage::RoleType::SuperAdmin) => Err(Error::CannotRemoveSuperAdmin),
+            Some(RoleType::SuperAdmin) => Err(Error::CannotRemoveSuperAdmin),
             None => Err(Error::RoleNotAssigned),
         }
+    }
+
+    // --- Convenience wrappers (used by tests and cross-contract callers) ---
+
+    pub fn add_verifier(env: Env, account: Address) -> Result<(), Error> {
+        let super_admin = read_super_admin(&env);
+        super_admin.require_auth();
+        if let Some(existing) = read_role(&env, &account) {
+            if existing != RoleType::Verifier {
+                return Err(Error::AddressHasDifferentRole);
+            }
+            return Err(Error::RoleAlreadyAssigned);
+        }
+        write_role(&env, &account, RoleType::Verifier);
+        Ok(())
+    }
+
+    pub fn add_trader(env: Env, account: Address) -> Result<(), Error> {
+        let super_admin = read_super_admin(&env);
+        super_admin.require_auth();
+        if let Some(existing) = read_role(&env, &account) {
+            if existing != RoleType::Trader {
+                return Err(Error::AddressHasDifferentRole);
+            }
+            return Err(Error::RoleAlreadyAssigned);
+        }
+        write_role(&env, &account, RoleType::Trader);
+        Ok(())
+    }
+
+    pub fn remove_verifier(env: Env, account: Address) -> Result<(), Error> {
+        let super_admin = read_super_admin(&env);
+        super_admin.require_auth();
+        if !is_verifier(&env, &account) {
+            return Err(Error::RoleNotAssigned);
+        }
+        storage::revoke_verifier(&env, &account);
+        Ok(())
+    }
+
+    pub fn remove_trader(env: Env, account: Address) -> Result<(), Error> {
+        let super_admin = read_super_admin(&env);
+        super_admin.require_auth();
+        if !is_trader(&env, &account) {
+            return Err(Error::RoleNotAssigned);
+        }
+        storage::revoke_trader(&env, &account);
+        Ok(())
     }
 
     // --- Role Checks ---
 
     pub fn has_role(env: Env, account: Address, role: String) -> bool {
         let role_type = if role == String::from_str(&env, "Admin") {
-            storage::RoleType::Admin
+            RoleType::Admin
         } else if role == String::from_str(&env, "Verifier") {
-            storage::RoleType::Verifier
+            RoleType::Verifier
         } else if role == String::from_str(&env, "Trader") {
-            storage::RoleType::Trader
+            RoleType::Trader
         } else if role == String::from_str(&env, "SuperAdmin") {
-            storage::RoleType::SuperAdmin
+            RoleType::SuperAdmin
         } else {
             return false;
         };
-
         if let Some(assigned) = read_role(&env, &account) {
             assigned == role_type
         } else {
@@ -126,15 +176,47 @@ impl RbacContract {
         is_admin(&env, &account)
     }
 
-    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
-        let super_admin = read_super_admin(&env);
-        super_admin.require_auth();
+    pub fn is_verifier(env: Env, account: Address) -> bool {
+        is_verifier(&env, &account)
+    }
 
+    pub fn is_trader(env: Env, account: Address) -> bool {
+        is_trader(&env, &account)
+    }
+
+    pub fn is_super_admin(env: Env, account: Address) -> bool {
+        is_super_admin(&env, &account)
+    }
+
+    pub fn get_super_admin(env: Env) -> Address {
+        read_super_admin(&env)
+    }
+
+    pub fn get_role(env: Env, account: Address) -> u32 {
+        match read_role(&env, &account) {
+            Some(RoleType::SuperAdmin) => 0,
+            Some(RoleType::Verifier)   => 1,
+            Some(RoleType::Trader)     => 2,
+            Some(RoleType::Admin)      => 3,
+            None                       => 255,
+        }
+    }
+
+    // --- Admin Transfer ---
+
+    pub fn transfer_admin(env: Env, old_admin: Address, new_admin: Address) -> Result<(), Error> {
+        old_admin.require_auth();
+        if !is_super_admin(&env, &old_admin) {
+            return Err(Error::Unauthorized);
+        }
         write_super_admin(&env, &new_admin);
         write_admin(&env, &new_admin);
-        write_role(&env, &new_admin, storage::RoleType::SuperAdmin);
-
-
+        write_role(&env, &new_admin, RoleType::SuperAdmin);
+        storage::remove_role(&env, &old_admin);
+        storage::revoke_admin(&env, &old_admin);
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test;
